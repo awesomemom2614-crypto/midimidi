@@ -22,6 +22,8 @@ export function onsetStrength(samples, sr, { nFft = 1024, hop = 256, nBands = 40
   let prev = new Float64Array(nBands);
   let cur = new Float64Array(nBands);
   const flux = new Float32Array(nFrames);
+  const lowFlux = new Float32Array(nFrames); // bands below ~150 Hz: kick drum
+  const lowBands = bank.filter((_, b) => melCentre(b, nBands, 30, sr / 2) < 150).length;
 
   // Frames are centred on t = i * hop, zero-padded at the edges.
   for (let i = 0; i < nFrames; i++) {
@@ -32,6 +34,7 @@ export function onsetStrength(samples, sr, { nFft = 1024, hop = 256, nBands = 40
     }
     fft.magnitude(frame, mag);
     let sum = 0;
+    let low = 0;
     for (let b = 0; b < nBands; b++) {
       const { first, weights } = bank[b];
       let e = 0;
@@ -39,15 +42,21 @@ export function onsetStrength(samples, sr, { nFft = 1024, hop = 256, nBands = 40
       cur[b] = Math.log1p(scale * e);
       if (i > 0) {
         const d = cur[b] - prev[b];
-        if (d > 0) sum += d;
+        if (d > 0) { sum += d; if (b < lowBands) low += d; }
       }
     }
     flux[i] = sum / nBands;
+    lowFlux[i] = low / Math.max(1, lowBands);
     const t = prev; prev = cur; cur = t;
   }
 
-  // Remove the slowly varying part so only attacks stand out, then normalise.
   const fps = sr / hop;
+  return { env: novelty(flux, fps, meanSec), envLow: novelty(lowFlux, fps, meanSec), fps };
+}
+
+// Removes the slowly varying part so only attacks stand out, then normalises.
+function novelty(flux, fps, meanSec) {
+  const nFrames = flux.length;
   const radius = Math.max(1, Math.round((meanSec * fps) / 2));
   const env = new Float32Array(nFrames);
   let acc = 0;
@@ -63,12 +72,18 @@ export function onsetStrength(samples, sr, { nFft = 1024, hop = 256, nBands = 40
   for (let i = 0; i < nFrames; i++) sq += env[i] * env[i];
   const rms = Math.sqrt(sq / Math.max(1, nFrames));
   if (rms > 0) for (let i = 0; i < nFrames; i++) env[i] /= rms;
-  return { env, fps };
+  return env;
+}
+
+function melCentre(b, nBands, fMin, fMax) {
+  const mel = (f) => 2595 * Math.log10(1 + f / 700);
+  const m = mel(fMin) + ((mel(fMax) - mel(fMin)) * (b + 1)) / (nBands + 1);
+  return 700 * (10 ** (m / 2595) - 1);
 }
 
 // Triangular mel filters, each normalised to unit sum. A band too narrow to
 // contain a bin centre falls back to its nearest bin.
-function melBank(nBands, nFft, sr, fMin, fMax) {
+export function melBank(nBands, nFft, sr, fMin, fMax) {
   const mel = (f) => 2595 * Math.log10(1 + f / 700);
   const hz = (m) => 700 * (10 ** (m / 2595) - 1);
   const binHz = sr / nFft;

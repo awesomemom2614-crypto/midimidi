@@ -22,6 +22,11 @@
   --series-map: #2a78d6;
   --series-beats: #eb6834;
   --warn: #9a5b00;
+  --lane-kick: #d9731a;
+  --lane-red: #d63a35;
+  --lane-yellow: #c99a00;
+  --lane-blue: #2a6fd6;
+  --lane-green: #1f9a4a;
   --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
   --font-body: "Instrument Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -31,13 +36,15 @@
   :root:not([data-theme="light"]) {
     --bg: #0f1216; --surface: #161a20; --fg: #eef1f5; --muted: #9ba5b2; --line: #2a313a;
     --grid: #222830; --axis: #56606c; --accent: #3987e5; --accent-ink: #ffffff;
-    --series-map: #3987e5; --series-beats: #d95926; --warn: #e0a43a; color-scheme: dark;
+    --series-map: #3987e5; --series-beats: #d95926; --warn: #e0a43a;
+    --lane-kick: #ef8f3a; --lane-red: #ee5a55; --lane-yellow: #e8bf2a; --lane-blue: #4a90ef; --lane-green: #3cbc66; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0f1216; --surface: #161a20; --fg: #eef1f5; --muted: #9ba5b2; --line: #2a313a;
   --grid: #222830; --axis: #56606c; --accent: #3987e5; --accent-ink: #ffffff;
-  --series-map: #3987e5; --series-beats: #d95926; --warn: #e0a43a; color-scheme: dark;
+  --series-map: #3987e5; --series-beats: #d95926; --warn: #e0a43a;
+    --lane-kick: #ef8f3a; --lane-red: #ee5a55; --lane-yellow: #e8bf2a; --lane-blue: #4a90ef; --lane-green: #3cbc66; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -114,6 +121,25 @@ tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent
 .delta.down { color: var(--series-map); }
 .lead td { color: var(--muted); }
 .footnote { font-size: 13px; color: var(--muted); max-width: 70ch; margin: 0; }
+.segmented { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.segmented label { text-align: center; padding: 7px 4px; font-size: 13px; font-weight: 500; cursor: pointer; border-left: 1px solid var(--line); }
+.segmented label:first-child { border-left: 0; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented label:has(input:checked) { background: var(--accent); color: var(--accent-ink); }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: -2px; }
+.drop.small { padding: 12px; }
+.lanes { position: relative; height: 96px; min-width: 0; }
+.lanes canvas { display: block; cursor: pointer; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button { font: 500 12px var(--font-mono); padding: 3px 9px; border-radius: 999px; }
+.mapping { max-height: 240px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.mapping table { font-size: 12px; }
+.mapping td, .mapping th { padding: 4px 8px; text-align: left; }
+.mapping select { font-size: 12px; padding: 2px 4px; }
+details summary { cursor: pointer; font-size: 13px; font-weight: 500; }
+.note { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line); padding-left: 8px; }
+.note.warn { color: var(--warn); border-color: var(--warn); }
+button.secondary { width: 100%; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -163,17 +189,82 @@ tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent
         </div>
       </section>
 
+      <section class="panel" aria-labelledby="drums-h">
+        <h2 id="drums-h">Drums</h2>
+        <div class="segmented" role="radiogroup" aria-label="Where drum notes come from">
+          <label><input type="radio" name="drum-mode" id="mode-none" value="none" checked>None</label>
+          <label><input type="radio" name="drum-mode" id="mode-songsterr" value="songsterr">Songsterr</label>
+          <label><input type="radio" name="drum-mode" id="mode-detect" value="detect">Detect</label>
+        </div>
+
+        <div class="field" id="songsterr-panel" hidden>
+          <label class="drop small" id="part-drop">
+            <strong>Drop a Songsterr .mid</strong>
+            <small>or click to choose · needs the drum track</small>
+            <input class="visually-hidden" type="file" id="part-file" accept=".mid,.midi,audio/midi">
+          </label>
+          <div class="hint" id="part-info"></div>
+          <div class="note warn" id="tempo-hint" hidden></div>
+          <div class="field" id="align-field" hidden>
+            <span class="label">Tab offset <span class="value" id="offset-value">0 beats</span></span>
+            <div class="row">
+              <button type="button" id="nudge-bar-back" aria-label="One bar earlier">−bar</button>
+              <button type="button" id="nudge-back" aria-label="One beat earlier">−1</button>
+              <button type="button" id="nudge-fwd" aria-label="One beat later">+1</button>
+              <button type="button" id="nudge-bar-fwd" aria-label="One bar later">+bar</button>
+              <button type="button" id="auto-align">Auto</button>
+            </div>
+            <span class="hint" id="align-hint"></span>
+            <div class="chips" id="align-alternatives"></div>
+          </div>
+          <details id="mapping-details" hidden>
+            <summary>Drum mapping (<span id="mapping-count">0</span> sounds)</summary>
+            <div class="mapping"><table><thead><tr><th scope="col">Note</th><th scope="col">Sound</th><th scope="col">Hits</th><th scope="col">Lane</th></tr></thead><tbody id="mapping-rows"></tbody></table></div>
+          </details>
+        </div>
+
+        <div class="field" id="detect-panel" hidden>
+          <span class="label">Detect from</span>
+          <div class="row">
+            <label class="check"><input type="radio" name="detect-source" id="source-main" value="main" checked> This audio</label>
+            <label class="check"><input type="radio" name="detect-source" id="source-stem" value="stem"> A drum stem</label>
+          </div>
+          <label class="drop small" id="stem-drop" hidden>
+            <strong>Drop the drum stem</strong>
+            <small>same length as the song, e.g. from Demucs</small>
+            <input class="visually-hidden" type="file" id="stem-file" accept="audio/*,.wav,.flac,.ogg,.mp3">
+          </label>
+          <div class="hint" id="stem-info" hidden></div>
+          <label for="sensitivity">Sensitivity <span class="value" id="sensitivity-label">50</span></label>
+          <input type="range" id="sensitivity" min="0" max="100" step="1" value="50">
+          <label for="snap">Snap to</label>
+          <select id="snap">
+            <option value="2">1/8 notes</option>
+            <option value="3">1/8 triplets</option>
+            <option value="4" selected>1/16 notes</option>
+            <option value="6">1/16 triplets</option>
+            <option value="8">1/32 notes</option>
+          </select>
+          <button type="button" id="detect-run">Detect drums</button>
+          <span class="note">Finds kick, snare, hi-hat and crash. Toms and ride aren't detected. Treat the result as a draft to fix in Moonscraper.</span>
+        </div>
+        <div class="hint" id="drum-stats"></div>
+      </section>
+
       <section class="panel" aria-labelledby="export-h">
-        <h2 id="export-h">MIDI export</h2>
-        <div class="field">
+        <h2 id="export-h">Export</h2>
+        <div class="field" id="bpb-field">
           <label for="bpb">Beats per bar</label>
           <select id="bpb">
             <option value="2">2/4</option><option value="3">3/4</option><option value="4" selected>4/4</option>
             <option value="5">5/4</option><option value="6">6/4</option><option value="7">7/4</option>
           </select>
+          <span class="hint" id="bpb-hint" hidden>Bars come from the Songsterr tab.</span>
         </div>
-        <label class="check"><input type="checkbox" id="click-track"> Add a click track (note on every beat)</label>
-        <button type="button" class="primary" id="download" disabled>Download tempo map (.mid)</button>
+        <button type="button" class="primary" id="download-chart" disabled>Download Clone Hero song (.zip)</button>
+        <span class="hint" id="chart-hint">Pick a drum source above to add drum notes. The folder holds notes.mid, song.ini and the audio.</span>
+        <button type="button" class="secondary" id="download" disabled>Tempo map only (.mid)</button>
+        <label class="check"><input type="checkbox" id="click-track"> Add a click track to the tempo map</label>
         <span class="hint" id="download-hint">Import it into your DAW at bar 1 with the audio starting at 0:00.</span>
       </section>
     </div>
@@ -197,9 +288,11 @@ tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent
         <div class="player">
           <button type="button" id="play" disabled>Play</button>
           <label class="check"><input type="checkbox" id="metronome" checked> Click on map beats</label>
+          <label class="check" id="drums-toggle" hidden><input type="checkbox" id="play-drums" checked> Play chart drums</label>
           <span class="time" id="time">0:00.00</span>
         </div>
         <div class="chart" id="chart"><div class="tooltip" id="tooltip" hidden></div></div>
+        <div class="lanes" id="lanes" hidden><div class="tooltip" id="lanes-tooltip" hidden></div></div>
       </section>
 
       <section class="panel" aria-labelledby="table-h">
@@ -210,7 +303,7 @@ tbody tr:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent
             <tbody id="rows"></tbody>
           </table>
         </div>
-        <p class="footnote">Click a row to jump there. Downbeats aren't detected: bar 1 starts at 0:00, so move the audio in your DAW if bar lines should fall elsewhere.</p>
+        <p class="footnote" id="rows-note">Click a row to jump there. Downbeats aren't detected: bar 1 starts at 0:00, so move the audio in your DAW if bar lines should fall elsewhere.</p>
       </section>
     </div>
   </div>

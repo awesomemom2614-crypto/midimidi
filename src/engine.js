@@ -46,6 +46,7 @@ function workerEngine() {
       kind: 'worker',
       analyze: (samples, sr, tracking) => call({ type: 'load', samples, sr, tracking }),
       retrack: (tracking) => call({ type: 'track', tracking }),
+      transcribe: (stem, sr) => call({ type: 'transcribe', samples: stem, sr }),
     };
   });
 }
@@ -58,5 +59,6 @@ function mainThreadEngine() {
     kind: 'main',
     analyze: (samples, sr, tracking) => later(() => { analyzer.load(samples, sr); return analyzer.track(tracking); }),
     retrack: (tracking) => later(() => analyzer.track(tracking)),
+    transcribe: (stem, sr) => later(() => analyzer.transcribe(stem, sr)),
   };
 }

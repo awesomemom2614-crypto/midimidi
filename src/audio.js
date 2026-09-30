@@ -4,13 +4,14 @@ import { ANALYSIS_SR } from './dsp/onset.js';
 
 export async function decodeFile(file) {
   const data = await file.arrayBuffer();
+  const bytes = new Uint8Array(data.slice(0)); // decodeAudioData detaches `data`
   let buffer;
   try {
     buffer = await new OfflineAudioContext(1, 1, 44100).decodeAudioData(data);
   } catch {
     throw new Error(`Couldn't decode “${file.name}”. Try WAV, FLAC, OGG or MP3.`);
   }
-  return { buffer, samples: await toAnalysisRate(buffer) };
+  return { buffer, bytes, samples: await toAnalysisRate(buffer) };
 }
 
 // Mono mixdown resampled to the analysis rate.
@@ -38,6 +39,8 @@ export class Player {
     this.clicks = [];
     this.beatsPerBar = 4;
     this.clickOn = true;
+    this.drums = []; // [{ time, lane, cymbal }], sorted
+    this.drumsOn = false;
     this.offset = 0;
     this.playing = false;
     this.onEnd = null;
@@ -53,6 +56,11 @@ export class Player {
     this.clicks = times;
     this.beatsPerBar = beatsPerBar;
     if (this.playing) this.nextClick = this.clickIndexAt(this.position());
+  }
+
+  setDrums(notes) {
+    this.drums = notes;
+    if (this.playing) this.nextDrum = this.drumIndexAt(this.position());
   }
 
   get duration() {
@@ -83,6 +91,7 @@ export class Player {
     };
     this.playing = true;
     this.nextClick = this.clickIndexAt(this.offset);
+    this.nextDrum = this.drumIndexAt(this.offset);
     this.timer = setInterval(() => this.schedule(), 25);
     this.schedule();
   }
@@ -113,14 +122,72 @@ export class Player {
     return i;
   }
 
-  // Look-ahead scheduler: queue clicks that fall in the next 150 ms.
+  drumIndexAt(t) {
+    let i = 0;
+    while (i < this.drums.length && this.drums[i].time < t - 0.001) i++;
+    return i;
+  }
+
+  // Look-ahead scheduler: queue clicks and drum notes in the next 150 ms.
   schedule() {
     const now = this.position();
+    while (this.nextDrum < this.drums.length && this.drums[this.nextDrum].time < now + 0.15) {
+      const n = this.drums[this.nextDrum];
+      if (this.drumsOn && n.time >= now - 0.01) this.drum(this.startedAt + (n.time - this.offset), n);
+      this.nextDrum++;
+    }
     while (this.nextClick < this.clicks.length && this.clicks[this.nextClick] < now + 0.15) {
       const t = this.clicks[this.nextClick];
       if (this.clickOn && t >= now - 0.01) this.blip(this.startedAt + (t - this.offset), this.nextClick % this.beatsPerBar === 0);
       this.nextClick++;
     }
+  }
+
+  // Simple synthetic kit for previewing chart notes against the recording.
+  drum(when, { lane, cymbal }) {
+    const ctx = this.ctx;
+    const out = ctx.createGain();
+    out.connect(ctx.destination);
+    if (lane === 'kick') {
+      const osc = ctx.createOscillator();
+      osc.frequency.setValueAtTime(140, when);
+      osc.frequency.exponentialRampToValueAtTime(45, when + 0.12);
+      out.gain.setValueAtTime(0.9, when);
+      out.gain.exponentialRampToValueAtTime(0.0001, when + 0.25);
+      osc.connect(out);
+      osc.start(when);
+      osc.stop(when + 0.26);
+      return;
+    }
+    if (lane !== 'red' && !cymbal) {
+      const osc = ctx.createOscillator();
+      const pitch = { yellow: 220, blue: 165, green: 110 }[lane];
+      osc.frequency.setValueAtTime(pitch * 1.4, when);
+      osc.frequency.exponentialRampToValueAtTime(pitch, when + 0.08);
+      out.gain.setValueAtTime(0.6, when);
+      out.gain.exponentialRampToValueAtTime(0.0001, when + 0.3);
+      osc.connect(out);
+      osc.start(when);
+      osc.stop(when + 0.31);
+      return;
+    }
+    this.noise ??= (() => {
+      const buf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      return buf;
+    })();
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filter = ctx.createBiquadFilter();
+    filter.type = lane === 'red' ? 'bandpass' : 'highpass';
+    filter.frequency.value = lane === 'red' ? 1800 : 7000;
+    const decay = lane === 'red' ? 0.15 : lane === 'yellow' ? 0.06 : 0.6;
+    out.gain.setValueAtTime(lane === 'red' ? 0.8 : 0.35, when);
+    out.gain.exponentialRampToValueAtTime(0.0001, when + decay);
+    src.connect(filter).connect(out);
+    src.start(when);
+    src.stop(when + decay + 0.01);
   }
 
   blip(when, accent) {

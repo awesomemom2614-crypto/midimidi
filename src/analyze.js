@@ -4,13 +4,17 @@
 import { onsetStrength } from './dsp/onset.js';
 import { estimateTempoCurve } from './dsp/tempo.js';
 import { trackBeats } from './dsp/beats.js';
+import { melSpectrogram, separateDrums } from './drums/transcribe.js';
 
 export const DEFAULT_TRACKING = { minBpm: 60, maxBpm: 200, tempoScale: 1 };
 
 export class Analyzer {
   load(samples, sr) {
-    const { env, fps } = onsetStrength(samples, sr);
+    this.samples = samples;
+    this.sr = sr;
+    const { env, envLow, fps } = onsetStrength(samples, sr);
     this.env = env;
+    this.envLow = envLow;
     this.fps = fps;
     this.duration = samples.length / sr;
   }
@@ -25,7 +29,16 @@ export class Analyzer {
       beats,
       curve: { times: curve.times, bpm: curve.bpm.map((b) => b * tempoScale) },
       duration: this.duration,
+      onset: { env: this.env, envLow: this.envLow, fps: this.fps },
     };
+  }
+
+  // Drum activations for the loaded audio, or for a separate drum stem.
+  transcribe(stem = null, sr = this.sr) {
+    const samples = stem ?? this.samples;
+    if (!samples) throw new Error('No audio loaded');
+    const spec = melSpectrogram(samples, sr);
+    return { acts: separateDrums(spec, { fullMix: !stem }), fps: spec.fps };
   }
 }
 

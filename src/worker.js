@@ -7,8 +7,13 @@ const analyzer = new Analyzer();
 self.onmessage = (e) => {
   const { id, type, samples, sr, tracking } = e.data;
   try {
-    if (type === 'load') analyzer.load(samples, sr);
-    const result = analyzer.track(tracking);
+    let result;
+    if (type === 'transcribe') {
+      result = analyzer.transcribe(samples ?? null, sr);
+    } else {
+      if (type === 'load') analyzer.load(samples, sr);
+      result = analyzer.track(tracking);
+    }
     self.postMessage({ id, ok: true, result });
   } catch (err) {
     self.postMessage({ id, ok: false, error: err?.message ?? String(err) });
