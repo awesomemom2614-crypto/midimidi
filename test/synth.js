@@ -21,11 +21,15 @@ export function beatAccuracy(detected, truth, tol) {
   return { f, precision, recall, errors };
 }
 
-// A Songsterr-style export: constant tempo, a guitar track on channel 1 and
+// A Songsterr-style export: its own tempo, a guitar track on channel 1 and
 // the drums on channel 10. hits: [{ beat, gm }].
 import { writeSmf, metaEvent, ascii, tempoEvent, timeSigEvent } from '../src/midi.js';
-export function writeGmMidi(hits, { bpm = 120, ppq = 960, timeSigs = [{ beat: 0, num: 4, den: 4 }] } = {}) {
-  const conductor = [tempoEvent(0, Math.round(60e6 / bpm)), ...timeSigs.map((s) => timeSigEvent(s.beat * ppq, s.num, s.den))];
+// tempos: [{ beat, bpm }] overrides the single `bpm`.
+export function writeGmMidi(hits, { bpm = 120, tempos = [{ beat: 0, bpm }], ppq = 960, timeSigs = [{ beat: 0, num: 4, den: 4 }] } = {}) {
+  const conductor = [
+    ...tempos.map((t) => tempoEvent(Math.round(t.beat * ppq), Math.round(60e6 / t.bpm))),
+    ...timeSigs.map((s) => timeSigEvent(s.beat * ppq, s.num, s.den)),
+  ];
   const guitar = [{ tick: 0, data: metaEvent(0x03, ascii('Guitar')) }, { tick: 0, data: [0x90, 40, 90] }, { tick: ppq, data: [0x80, 40, 0] }];
   const drums = [{ tick: 0, data: metaEvent(0x03, ascii('Drums')) }];
   for (const h of hits) {

@@ -37,10 +37,22 @@ export function readDrumPart(bytes) {
   timeSigs.sort((a, b) => a.beat - b.beat);
   const dedupedSigs = timeSigs.filter((s, i) => i === 0 || s.beat !== timeSigs[i - 1].beat || s.num !== timeSigs[i - 1].num);
   if (!dedupedSigs.length || dedupedSigs[0].beat > 0) dedupedSigs.unshift({ beat: 0, num: 4, den: 4 });
-  const bpm = 60e6 / tempoEvents(midi)[0].us;
+  // The tab's own tempo is only reported (and used to spot half/double-time
+  // mismatches); the chart always takes its tempo map from the recording.
+  const tempos = tempoEvents(midi);
+  const endTick = Math.max(...notes.map((n) => n.beat)) * midi.ppq;
+  const spans = new Map();
+  tempos.forEach((t, i) => {
+    const until = Math.max(t.tick, Math.min(endTick, tempos[i + 1]?.tick ?? endTick));
+    const b = Math.round(6e9 / t.us) / 100; // BPM to 2 decimals
+    spans.set(b, (spans.get(b) ?? 0) + (until - t.tick));
+  });
+  const bpm = [...spans.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const tempoBpms = tempos.map((t) => 60e6 / t.us);
+  const tempoRange = [Math.min(...tempoBpms), Math.max(...tempoBpms)];
   const counts = {};
   for (const n of notes) counts[n.gm] = (counts[n.gm] ?? 0) + 1;
-  return { name, notes, timeSigs: dedupedSigs, bpm, counts, endBeat: notes[notes.length - 1].beat };
+  return { name, notes, timeSigs: dedupedSigs, bpm, tempoRange, tempoChanges: tempos.length - 1, counts, endBeat: notes[notes.length - 1].beat };
 }
 
 // How well the part's hits line up with audio onsets for each whole-beat

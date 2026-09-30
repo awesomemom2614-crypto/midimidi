@@ -14,7 +14,7 @@ const SR = 22050;
 const COUNT_IN = 8; // the tab has two empty bars before the drums come in
 
 // Audio whose tempo goes 100 -> 132 BPM, with the drum part starting on its
-// first beat; the "Songsterr" file has the same part at a constant 120 BPM.
+// first beat; the "Songsterr" file has the same part at its own tempos.
 function scenario({ music = false, start = 1.2 } = {}) {
   const tempo = (t) => (t < 22 ? 100 : 132);
   const truthBeats = tempoBeats(tempo, 60, start);
@@ -36,7 +36,10 @@ for (const music of [false, true]) {
   test(`Songsterr part aligns to the recording and lands on the real hits (${music ? 'full mix' : 'drums only'})`, () => {
     const { part: rawPart, hits, audio } = scenario({ music });
     const { result, map } = analyse(audio);
-    const part = readDrumPart(writeGmMidi(rawPart, { bpm: 120 }));
+    // The tab has its own tempo changes, none of which match the recording.
+    const tabTempos = [{ beat: 0, bpm: 120 }, { beat: 24, bpm: 90 }, { beat: 48, bpm: 140 }];
+    const part = readDrumPart(writeGmMidi(rawPart, { tempos: tabTempos }));
+    assert.deepEqual(part.tempoRange.map(Math.round), [90, 140]);
 
     // The first real hit sits on grid beat g0; the tab's beat 8 must map there.
     const g0 = map.gridTimes.reduce((best, t, i) => (Math.abs(t - hits[0].time) < Math.abs(map.gridTimes[best] - hits[0].time) ? i : best), 0);
@@ -49,6 +52,12 @@ for (const music of [false, true]) {
     const placed = placePart(part, align.offset, DEFAULT_GM_MAP, map.gridTimes.length - 1);
     const sigs = chartTimeSigs(part, align.offset, map.gridTimes.length - 1);
     const midi = parseMidi(chartToMidi(map, placed.notes, sigs));
+
+    // The chart's tempo map is exactly the detected one; the tab's is ignored.
+    const written = midi.tracks[0].filter((e) => e.meta === 0x51).map((e) => [e.tick, (e.data[0] << 16) | (e.data[1] << 8) | e.data[2]]);
+    assert.deepEqual(written, map.events.map((e) => [e.beat * 480, e.microsPerBeat]));
+    const tabUs = tabTempos.map((t) => Math.round(60e6 / t.bpm));
+    assert.ok(written.every(([, us]) => !tabUs.includes(us)), 'a tab tempo leaked into notes.mid');
 
     // Every kick and snare in notes.mid is within 25 ms of the real hit.
     const kicks = midi.tracks[1].filter((e) => (e.status & 0xf0) === 0x90 && e.data[1] > 0 && e.data[0] === EXPERT_NOTE.kick);

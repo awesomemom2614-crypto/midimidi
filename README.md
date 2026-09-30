@@ -52,6 +52,8 @@ songsterr.com.
   which detected beat the tab's first beat falls on (the **offset**), then shifts every note onto
   the detected tempo map. That lines the notes up with the recording even where the band speeds up
   or slows down.
+- The tempo map always comes from the recording. Any tempos written in the tab are ignored; they
+  are only compared with the detected tempo to spot a half-time or double-time mismatch.
 - Bar lines and time signatures come from the tab. A pickup bar fills any gap at the start.
 - The offset is found automatically. A steady groove shifted by a whole bar can match almost as
   well, so check it:

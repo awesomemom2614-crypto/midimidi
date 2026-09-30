@@ -47,7 +47,7 @@ const hits = part.map((h) => ({ ...h, time: beatTimeOn(truth, h.beat) }));
 const wavPath = path.join(tmp, 'step-110-150.wav');
 await fs.writeFile(wavPath, encodeWav(renderHits(hits, 40, { sr: 44100, music: true }), 44100));
 const tabPath = path.join(tmp, 'tab.mid');
-await fs.writeFile(tabPath, writeGmMidi(part.map((h) => ({ ...h, beat: h.beat + 8 })), { bpm: 120 }));
+await fs.writeFile(tabPath, writeGmMidi(part.map((h) => ({ ...h, beat: h.beat + 8 })), { tempos: [{ beat: 0, bpm: 120 }, { beat: 40, bpm: 96 }] }));
 const trueKicks = hits.filter((h) => h.gm === 36).map((h) => h.time);
 
 // Reads a stored zip into { name: Uint8Array }.
@@ -75,6 +75,9 @@ async function downloadChart(page) {
   assert.deepEqual(Object.keys(files).sort(), ['step-110-150/notes.mid', 'step-110-150/song.ini', 'step-110-150/song.wav']);
   assert.match(new TextDecoder().decode(files['step-110-150/song.ini']), /pro_drums = True/);
   const midi = parseMidi(files['step-110-150/notes.mid']);
+  // Tempos in notes.mid are the detected 110 -> 150 BPM, never the tab's 120 / 96.
+  const bpms = midi.tracks[0].filter((e) => e.meta === 0x51).map((e) => 60e6 / ((e.data[0] << 16) | (e.data[1] << 8) | e.data[2]));
+  assert.ok(bpms.slice(1).every((b) => Math.abs(b - 110) < 1 || Math.abs(b - 150) < 1), `tempos ${bpms.map((b) => b.toFixed(2))}`);
   const drums = midi.tracks[1];
   assert.equal(String.fromCharCode(...drums.find((e) => e.meta === 0x03).data), 'PART DRUMS');
   const kicks = drums.filter((e) => (e.status & 0xf0) === 0x90 && e.data[1] > 0 && e.data[0] === 96).map((e) => tickToSeconds(midi, e.tick));
@@ -129,6 +132,8 @@ try {
     await page.click('label:has(#mode-songsterr)');
     await page.setInputFiles('#part-file', tabPath);
     await page.waitForFunction(() => /notes:/.test(document.querySelector('#drum-stats').textContent));
+    const source = await page.textContent('#tempo-source');
+    assert.match(source, /detected from the recording .*The tab's tempo \(96–120 BPM\) is ignored/);
     const tab = await downloadChart(page);
     assert.ok(tab.matched >= 0.97 * trueKicks.length && tab.kicks <= trueKicks.length, `tab kicks ${tab.matched}/${tab.kicks} of ${trueKicks.length}`);
 

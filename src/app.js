@@ -23,7 +23,7 @@ const els = {
   play: $('play'), metronome: $('metronome'), playDrums: $('play-drums'), drumsToggle: $('drums-toggle'), time: $('time'),
   rows: $('rows'), sLength: $('s-length'), sBeats: $('s-beats'), sEvents: $('s-events'), sRange: $('s-range'),
   songsterrPanel: $('songsterr-panel'), detectPanel: $('detect-panel'), lanes: $('lanes'), drumStats: $('drum-stats'),
-  partDrop: $('part-drop'), partFile: $('part-file'), partInfo: $('part-info'), tempoHint: $('tempo-hint'),
+  partDrop: $('part-drop'), partFile: $('part-file'), partInfo: $('part-info'), tempoSource: $('tempo-source'), tempoHint: $('tempo-hint'),
   alignField: $('align-field'), offsetValue: $('offset-value'), alignHint: $('align-hint'), alignAlternatives: $('align-alternatives'),
   mappingDetails: $('mapping-details'), mappingCount: $('mapping-count'), mappingRows: $('mapping-rows'),
   stemDrop: $('stem-drop'), stemFile: $('stem-file'), stemInfo: $('stem-info'),
@@ -281,6 +281,14 @@ function renderDrums() {
   els.bpbHint.hidden = !usesTabBars;
 
   if (state.map) renderRows(state.map);
+  const part = d.mode === 'songsterr' ? d.part : null;
+  els.tempoSource.hidden = !part;
+  if (part) {
+    const changes = state.map?.events.filter((e) => !e.leadIn).length ?? 0;
+    const [lo, hi] = part.tempoRange;
+    const tab = Math.round(lo) === Math.round(hi) ? `${lo.toFixed(0)} BPM` : `${lo.toFixed(0)}–${hi.toFixed(0)} BPM`;
+    els.tempoSource.textContent = `Tempo map: detected from the recording (${changes} tempo ${changes === 1 ? 'event' : 'events'}). The tab's tempo (${tab}) is ignored.`;
+  }
   const grid = state.map?.gridTimes ?? [];
   const timed = d.notes.map((n) => ({ ...n, time: beatToTime(grid, n.beat), ...barBeat(n.beat, d.timeSigs) }));
   lanes.setNotes(timed, state.duration);
@@ -290,7 +298,7 @@ function renderDrums() {
   for (const n of d.notes) counts[n.lane]++;
   if (d.notes.length) {
     els.drumStats.textContent = `${d.notes.length} notes: kick ${counts.kick} · red ${counts.red} · yellow ${counts.yellow} · blue ${counts.blue} · green ${counts.green}. ${d.stats}`;
-    els.chartHint.textContent = 'Unzip into your Clone Hero songs folder, or import notes.mid into Moonscraper. Expert pro drums only.';
+    els.chartHint.textContent = `Unzip into your Clone Hero songs folder, or import notes.mid into Moonscraper. Expert pro drums only.${part ? ' The tempo map is the one detected from the recording, not the tab\'s.' : ''}`;
   } else {
     els.drumStats.textContent = d.mode === 'songsterr' && !d.part ? '' : d.mode === 'detect' && !d.acts ? '' : d.mode === 'none' ? '' : 'No drum notes.';
     els.chartHint.textContent = 'Pick a drum source above to add drum notes. The folder holds notes.mid, song.ini and the audio.';
@@ -355,7 +363,7 @@ async function openPart(file) {
     const part = readDrumPart(new Uint8Array(await file.arrayBuffer()));
     state.drums.part = part;
     state.drums.manual = false;
-    els.partInfo.textContent = `${file.name}: ${part.notes.length} drum notes${part.name ? ` on “${part.name}”` : ''}, tab tempo ${part.bpm.toFixed(0)} BPM.`;
+    els.partInfo.textContent = `${file.name}: ${part.notes.length} drum notes${part.name ? ` on “${part.name}”` : ''}.`;
     renderMapping();
     updateDrums();
     renderTempoHint();
